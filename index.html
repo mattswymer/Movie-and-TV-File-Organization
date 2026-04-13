@@ -3,68 +3,87 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PlexMediaFixer - Automated Workflow</title>
+    <title>PlexMediaFixer - Audit Remediation Build</title>
     <style>
-        :root { --bg: #0f172a; --panel: #1e293b; --text: #f8fafc; --accent: #38bdf8; --border: #334155; --success: #22c55e; }
+        :root { --bg: #0f172a; --panel: #1e293b; --text: #f8fafc; --accent: #38bdf8; --border: #334155; --success: #22c55e; --error: #ef4444; --warning: #f59e0b; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 30px; line-height: 1.6; margin: 0; }
-        .container { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 30px; }
+        .container { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 30px; }
         
-        .step-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 25px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .step-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 25px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); transition: opacity 0.3s ease; }
+        .step-card.disabled { opacity: 0.4; pointer-events: none; }
         h2 { margin-top: 0; color: var(--accent); font-size: 1.3rem; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
         .step-num { background: var(--accent); color: #000; width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 1rem; }
         
-        input[type="text"] { width: 100%; background: #0f172a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 12px; font-family: monospace; font-size: 0.95rem; box-sizing: border-box; margin-bottom: 10px; }
-        input[type="text"]:focus { outline: none; border-color: var(--accent); }
+        input[type="text"], input[type="password"] { width: 100%; background: #0f172a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 12px; font-family: monospace; font-size: 0.95rem; box-sizing: border-box; margin-bottom: 10px; }
+        input[type="text"]:focus, input[type="password"]:focus { outline: none; border-color: var(--accent); }
         
         .code-block { background: #000; border: 1px solid #222; padding: 15px; border-radius: 4px; font-family: 'Consolas', monospace; color: #a5d6a7; position: relative; overflow-x: auto; margin-bottom: 10px; }
-        .copy-btn { position: absolute; right: 10px; top: 10px; background: var(--border); color: var(--text); border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+        .copy-btn { position: absolute; right: 10px; top: 10px; background: var(--border); color: var(--text); border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; z-index: 10; }
         .copy-btn:hover { background: var(--accent); color: #000; }
         
         textarea { width: 100%; height: 140px; background: #0f172a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 12px; font-family: 'Consolas', monospace; resize: vertical; box-sizing: border-box; }
         textarea:focus { outline: none; border-color: var(--accent); }
+        textarea.error-state { border-color: var(--error); }
+        textarea[readonly] { background: #0a0f1c; color: #94a3b8; border-style: dashed; cursor: not-allowed; }
         
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; background: #0f172a; border-radius: 4px; overflow: hidden; }
-        th, td { border: 1px solid var(--border); padding: 10px; text-align: left; font-size: 0.85rem; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; background: #0f172a; border-radius: 4px; overflow: hidden; table-layout: fixed; }
+        th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         th { background: #1e293b; color: #94a3b8; }
+        td:nth-child(1) { width: 40%; } td:nth-child(2) { width: 40%; } td:nth-child(3) { width: 20%; }
+        
         .status { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
         .status.match { background: rgba(34, 197, 94, 0.2); color: var(--success); border: 1px solid var(--success); }
-        .status.fail { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; }
+        .status.fail { background: rgba(239, 68, 68, 0.2); color: var(--error); border: 1px solid var(--error); }
+        
+        .btn-action { background: var(--border); color: var(--text); border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; margin-left: 8px; }
+        .btn-action:hover { background: var(--accent); color: #000; }
+        .btn-danger { background: rgba(239, 68, 68, 0.2); color: var(--error); border: 1px solid var(--error); padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+        .btn-danger:hover { background: var(--error); color: #fff; }
         
         .hint { font-size: 0.85rem; color: #94a3b8; margin-top: 0; }
-        #loader { display: none; color: var(--accent); font-weight: bold; font-size: 0.9rem; margin-top: 10px; }
+        .inline-error { color: var(--error); font-size: 0.85rem; margin-top: 5px; display: none; font-weight: 500; }
         
-        .toggle-container { display: flex; align-items: center; gap: 8px; margin-bottom: 15px; font-size: 0.9rem; color: #ef4444; font-weight: bold; }
+        .progress-bar { display: none; align-items: center; gap: 15px; margin-top: 15px; background: #0f172a; padding: 10px; border-radius: 4px; border: 1px solid var(--border); }
+        #progressText { font-size: 0.9rem; color: var(--accent); font-weight: 500; flex-grow: 1; }
+        
+        .toggle-container { display: flex; align-items: center; gap: 8px; margin-bottom: 15px; font-size: 0.9rem; color: var(--success); font-weight: bold; }
+        .toggle-container.warning { color: var(--warning); }
         input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div class="step-card">
-        <h2><span class="step-num">1</span> Scan Source Directory</h2>
-        <p class="hint">Enter the full path to the folder containing your messy media files. The app will generate a command to safely map the files.</p>
-        <input type="text" id="sourcePath" placeholder="e.g., C:\Users\Name\Downloads\UnsortedMedia" value="C:\Downloads">
-        
-        <p class="hint" style="margin-top: 15px;">Run this command in PowerShell. It will scan the folder and copy the file list to your clipboard.</p>
+    <div class="step-card" id="step1">
+        <h2><span class="step-num">1</span> Source Extraction</h2>
+        <p class="hint">Define the source directory. The generated command filters for known media extensions automatically.</p>
+        <input type="text" id="sourcePath" placeholder="e.g., C:\Downloads" value="C:\Downloads">
         <div class="code-block">
-            <button class="copy-btn" onclick="copyToClipboard('gatherCmd', this)">Copy</button>
-            <span id="gatherCmd">Get-ChildItem -Path "C:\Downloads" -File -Recurse | Select-Object FullName, Name, Length | ConvertTo-Json | Set-Clipboard</span>
+            <button class="copy-btn" onclick="UI.copyCmd('gatherCmd', this)">Copy</button>
+            <span id="gatherCmd" data-cmd=""></span>
         </div>
     </div>
 
-    <div class="step-card">
-        <h2><span class="step-num">2</span> Resolve Metadata</h2>
-        <p class="hint">Paste the clipboard contents (the JSON payload) from Step 1 into the box below. The system will automatically begin processing.</p>
-        <textarea id="inputArea" spellcheck="false" placeholder="Paste JSON output here..."></textarea>
-        <div id="loader">Communicating with TMDB API...</div>
+    <div class="step-card" id="step2">
+        <h2><span class="step-num">2</span> Resolution Pipeline</h2>
+        <input type="password" id="apiKey" placeholder="TMDB API Read Access Token (v3 or v4)" style="margin-bottom: 15px;">
+        <p class="hint">Paste the JSON payload generated by Step 1. Processing begins immediately upon valid paste.</p>
         
-        <div style="max-height: 250px; overflow-y: auto; margin-top: 15px;">
-            <table id="previewTable" style="display:none;">
+        <textarea id="inputArea" spellcheck="false" placeholder="Paste JSON here..."></textarea>
+        <div id="jsonError" class="inline-error"></div>
+        
+        <div class="progress-bar" id="progressContainer">
+            <span id="progressText">Initializing...</span>
+            <button class="btn-danger" onclick="Pipeline.abort()">Cancel</button>
+        </div>
+        
+        <div style="max-height: 300px; overflow-y: auto; margin-top: 15px; display: none;" id="tableContainer">
+            <table id="previewTable">
                 <thead>
                     <tr>
-                        <th>Original File</th>
-                        <th>Identified As</th>
-                        <th>Match Status</th>
+                        <th>Source File</th>
+                        <th>Resolved Target</th>
+                        <th>Status</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody"></tbody>
@@ -72,180 +91,359 @@
         </div>
     </div>
 
-    <div class="step-card">
-        <h2><span class="step-num">3</span> Define Destination & Execute</h2>
-        <p class="hint">Enter the root path of your final media library. The script will automatically create the required Plex-friendly subfolders here.</p>
-        <input type="text" id="destPath" placeholder="e.g., E:\PlexMedia" value="D:\MediaLibrary">
+    <div class="step-card disabled" id="step3">
+        <h2><span class="step-num">3</span> Execution Script</h2>
+        <p class="hint">Define the root path of the library. Paths containing PowerShell metacharacters will be stripped.</p>
+        <input type="text" id="destPath" placeholder="e.g., D:\PlexLibrary" value="D:\Media">
         
-        <label class="toggle-container">
-            <input type="checkbox" id="whatifToggle">
-            Enable Safe Mode (Appends -WhatIf to prevent actual file movement)
+        <label class="toggle-container" id="safeModeLabel">
+            <input type="checkbox" id="whatifToggle" checked>
+            <span>Safe Mode ENABLED (Appends -WhatIf to preview actions without moving files)</span>
         </label>
         
         <div style="position: relative;">
-            <button class="copy-btn" onclick="copyToClipboard('outputArea', this)" style="top: 10px; z-index: 10;">Copy Script</button>
-            <textarea id="outputArea" readonly spellcheck="false" placeholder="Your final PowerShell script will appear here after Step 2..."></textarea>
+            <button class="copy-btn" onclick="UI.copyCmd('outputArea', this)" style="background: var(--accent); color: #000;">Copy Script</button>
+            <textarea id="outputArea" readonly spellcheck="false" placeholder="Awaiting successful pipeline resolution..."></textarea>
         </div>
-        <p class="hint"><em>Note: If Safe Mode is unchecked, running this script will immediately move and rename your files.</em></p>
     </div>
 </div>
 
 <script>
-    const API_KEY = "8c1365e7271e2d6e613301939f928815";
-    let parsedFilesCache = [];
+/**
+ * PLEX MEDIA FIXER - CORE LOGIC
+ * Refactored into logical namespaces to adhere to maintainability limits within a single file.
+ */
 
-    // Update PS1 Command dynamically when Source Path changes
-    document.getElementById('sourcePath').addEventListener('input', function() {
-        const path = this.value.trim() || "C:\\";
-        document.getElementById('gatherCmd').innerText = `Get-ChildItem -Path "${path}" -File -Recurse | Select-Object FullName, Name, Length | ConvertTo-Json | Set-Clipboard`;
-    });
+const EXT_WHITELIST = ['mkv', 'mp4', 'avi', 'mov', 'm4v', 'ts', 'wmv'];
 
-    // Handle Input Pasting
-    let debounceTimer;
-    document.getElementById('inputArea').addEventListener('input', function() {
-        clearTimeout(debounceTimer);
-        const val = this.value.trim();
-        if (!val) return;
-        
-        debounceTimer = setTimeout(() => {
-            try {
-                let files = JSON.parse(val);
-                if (!Array.isArray(files)) files = [files];
-                parsedFilesCache = files;
-                executePipeline();
-            } catch (e) {
-                alert("Syntax error in JSON payload. Please ensure you ran the PowerShell command correctly.");
-            }
-        }, 500);
-    });
+// --- 1. UTILITIES & SANITIZATION ---
+const Utils = {
+    sanitizePSPath: (path) => path.replace(/[\"\`\$\;\&\(\)\{\}]/g, '').trim(),
+    sanitizePSTitle: (title) => title.replace(/[\$\`\"\'\&]/g, '').replace(/[<>:\/\\|?*]+/g, '').trim(),
+    getExt: (filename) => {
+        const idx = filename.lastIndexOf('.');
+        return idx > 0 ? filename.slice(idx + 1).toLowerCase() : '';
+    },
+    sleep: (ms) => new Promise(res => setTimeout(res, ms))
+};
 
-    // Update Script dynamically when Destination Path or Toggle changes
-    document.getElementById('destPath').addEventListener('input', updateScriptIfReady);
-    document.getElementById('whatifToggle').addEventListener('change', updateScriptIfReady);
+// --- 2. PARSING ENGINE ---
+const Parser = {
+    analyze: (filename) => {
+        const ext = Utils.getExt(filename);
+        if (!EXT_WHITELIST.includes(ext)) return null;
 
-    function updateScriptIfReady() {
-        if (parsedFilesCache.length > 0) buildFinalScript();
-    }
-
-    // Copy to Clipboard Helper
-    function copyToClipboard(elementId, btn) {
-        const el = document.getElementById(elementId);
-        const text = el.tagName === 'TEXTAREA' ? el.value : el.innerText;
-        navigator.clipboard.writeText(text).then(() => {
-            const originalText = btn.innerText;
-            btn.innerText = 'Copied!';
-            btn.style.background = 'var(--success)';
-            btn.style.color = '#fff';
-            setTimeout(() => { 
-                btn.innerText = originalText; 
-                btn.style.background = 'var(--border)';
-                btn.style.color = 'var(--text)';
-            }, 2000);
-        });
-    }
-
-    // --- Core Logic ---
-    function parseFilename(filename) {
-        let clean = filename.replace(/\.(1080p|720p|2160p|4k|x264|x265|bluray|hdtv|web-dl|hevc|rerip).*/i, '');
+        // Strip extension and known quality flags
+        let clean = filename.slice(0, filename.lastIndexOf('.')).replace(/\.(1080p|720p|2160p|4k|x264|x265|bluray|hdtv|web-dl|hevc|rerip).*/i, '');
         clean = clean.replace(/[\.\_\-]/g, ' ');
 
-        const tvMatch = clean.match(/(.+?)\s*S(\d{1,2})E(\d{1,2})/i);
-        if (tvMatch) return { type: 'tv', title: tvMatch[1].trim(), season: parseInt(tvMatch[2]), episode: parseInt(tvMatch[3]), ext: filename.split('.').pop() };
+        // Rule 1: TV Show (S01E01) - Non-greedy title capture
+        const tvMatch = clean.match(/^(.+?)\s+[Ss](\d{1,2})[Ee](\d{1,2})/i);
+        if (tvMatch) return { type: 'tv', title: tvMatch[1].trim(), season: parseInt(tvMatch[2]), episode: parseInt(tvMatch[3]), ext, original: filename };
 
-        const movieMatch = clean.match(/(.+?)\s*(\d{4})/);
-        if (movieMatch) return { type: 'movie', title: movieMatch[1].trim(), year: movieMatch[2], ext: filename.split('.').pop() };
+        // Rule 2: Movie (Year)
+        const movieMatch = clean.match(/^(.+?)\s+(\d{4})/);
+        if (movieMatch) return { type: 'movie', title: movieMatch[1].trim(), year: movieMatch[2], ext, original: filename };
 
-        return { type: 'unknown', title: clean.trim(), ext: filename.split('.').pop() };
+        // Fallback
+        return { type: 'unknown', title: clean.trim(), ext, original: filename };
     }
+};
 
-    async function fetchMetadata(info) {
+// --- 3. TMDB API LAYER ---
+const TMDB = {
+    cache: new Map(),
+    controller: null,
+    
+    fetchMetadata: async (info, apiKey) => {
+        const queryKey = `${info.type}_${info.title}_${info.year||''}`;
+        if (TMDB.cache.has(queryKey)) return TMDB.cache.get(queryKey);
+
         const baseUrl = "https://api.themoviedb.org/3/search";
+        const url = info.type === 'movie' 
+            ? `${baseUrl}/movie?api_key=${apiKey}&query=${encodeURIComponent(info.title)}&year=${info.year || ''}`
+            : `${baseUrl}/tv?api_key=${apiKey}&query=${encodeURIComponent(info.title)}`;
+
         try {
-            let url = info.type === 'movie' 
-                ? `${baseUrl}/movie?api_key=${API_KEY}&query=${encodeURIComponent(info.title)}&year=${info.year || ''}`
-                : `${baseUrl}/tv?api_key=${API_KEY}&query=${encodeURIComponent(info.title)}`;
-            
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: TMDB.controller.signal });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             
-            if (data.results && data.results.length > 0) {
+            if (data?.results?.length > 0) {
                 const res = data.results[0];
-                return {
-                    officialTitle: (res.title || res.name).replace(/[<>:"/\\|?*]+/g, ''),
+                const result = {
+                    officialTitle: Utils.sanitizePSTitle(res.title || res.name),
                     year: (res.release_date || res.first_air_date || "0000").split('-')[0],
                     success: true,
                     info: info
                 };
+                TMDB.cache.set(queryKey, result);
+                return result;
             }
-        } catch (e) {}
+        } catch (e) {
+            if (e.name !== 'AbortError') console.error(`TMDB Resolution Failed for ${info.title}:`, e);
+        }
+        
         return { officialTitle: info.title, success: false, info: info };
     }
+};
 
-    async function executePipeline() {
-        document.getElementById('loader').style.display = "block";
-        document.getElementById('previewTable').style.display = "table";
-        const tbody = document.getElementById('tableBody');
-        tbody.innerHTML = "";
+// --- 4. SCRIPT BUILDER ---
+const ScriptBuilder = {
+    generate: (processedFiles, destRoot, useWhatIf) => {
+        const root = Utils.sanitizePSPath(destRoot) || "D:\\Media";
+        const flag = useWhatIf ? " -WhatIf" : "";
+        const seenPaths = new Set();
         
-        for (let i = 0; i < parsedFilesCache.length; i++) {
-            let file = parsedFilesCache[i];
-            if (!file.Name || !file.FullName) continue;
-            
-            const parsed = parseFilename(file.Name);
-            const meta = await fetchMetadata(parsed);
-            
-            parsedFilesCache[i].meta = meta;
-
-            const row = tbody.insertRow();
-            row.innerHTML = `
-                <td>${file.Name}</td>
-                <td>${meta.officialTitle}</td>
-                <td><span class="status ${meta.success ? 'match' : 'fail'}">${meta.success ? 'RESOLVED' : 'UNRESOLVED'}</span></td>
-            `;
-        }
-
-        document.getElementById('loader').style.display = "none";
-        buildFinalScript(); 
-    }
-
-    function buildFinalScript() {
-        const destRoot = document.getElementById('destPath').value.trim() || "D:\\Media";
-        const useWhatIf = document.getElementById('whatifToggle').checked;
-        const whatIfFlag = useWhatIf ? " -WhatIf" : "";
-        
-        let scriptLines = [
+        let lines = [
             "# --- PLEX MEDIA FIXER: EXECUTION SCRIPT ---",
-            "$ErrorActionPreference = 'Stop'",
-            `$TargetLibrary = "${destRoot}"\n`
+            "$ErrorActionPreference = 'Continue' # Prevents single failures from aborting the entire run",
+            "$FailedMoves = @()",
+            `$TargetLibrary = '${root}'\n`
         ];
 
-        parsedFilesCache.forEach(file => {
-            if (!file.meta) return;
+        processedFiles.forEach(file => {
+            if (!file.meta || !file.fullName) return;
             const meta = file.meta;
             const parsed = meta.info;
             
             let targetRelPath = "";
             if (parsed.type === 'tv') {
-                let s = parsed.season.toString().padStart(2, '0');
-                let e = parsed.episode.toString().padStart(2, '0');
+                const s = parsed.season.toString().padStart(2, '0');
+                const e = parsed.episode.toString().padStart(2, '0');
                 targetRelPath = `TV Shows\\${meta.officialTitle}\\Season ${s}\\${meta.officialTitle} - S${s}E${e}.${parsed.ext}`;
             } else {
                 targetRelPath = `Movies\\${meta.officialTitle} (${meta.year})\\${meta.officialTitle} (${meta.year}).${parsed.ext}`;
             }
 
+            // Duplicate Detection
+            let finalRelPath = targetRelPath;
+            let counter = 2;
+            while (seenPaths.has(finalRelPath)) {
+                finalRelPath = targetRelPath.replace(`.${parsed.ext}`, `_${counter}.${parsed.ext}`);
+                counter++;
+            }
+            seenPaths.add(finalRelPath);
+
             if (meta.success) {
-                scriptLines.push(`$Dest = Join-Path -Path $TargetLibrary -ChildPath "${targetRelPath}"`);
-                scriptLines.push(`New-Item -ItemType Directory -Force -Path (Split-Path $Dest) | Out-Null`);
-                scriptLines.push(`Move-Item -Path "${file.FullName}" -Destination $Dest${whatIfFlag}\n`);
+                lines.push(`try {`);
+                lines.push(`    $Dest = Join-Path -Path $TargetLibrary -ChildPath "${finalRelPath}"`);
+                lines.push(`    New-Item -ItemType Directory -Force -Path (Split-Path -Path $Dest) | Out-Null`);
+                lines.push(`    Move-Item -LiteralPath "${file.fullName}" -Destination $Dest${flag} -ErrorAction Stop`);
+                lines.push(`} catch {`);
+                lines.push(`    Write-Warning "Failed to move: ${file.originalName}"`);
+                lines.push(`    $FailedMoves += "${file.originalName}"`);
+                lines.push(`}\n`);
             } else {
-                scriptLines.push(`# [MANUAL INTERVENTION REQUIRED] Could not resolve: "${file.Name}"`);
-                scriptLines.push(`# Move-Item -Path "${file.FullName}" -Destination "???"\n`);
+                lines.push(`# [UNRESOLVED] Move-Item -LiteralPath "${file.fullName}" -Destination "???"\n`);
             }
         });
 
-        document.getElementById('outputArea').value = scriptLines.join('\n');
+        lines.push(`if ($FailedMoves.Count -gt 0) { Write-Host "\nTotal Failures: $($FailedMoves.Count)" -ForegroundColor Red }`);
+        return lines.join('\n');
     }
-</script>
+};
 
+// --- 5. PIPELINE & UI CONTROLLER ---
+const Pipeline = {
+    runId: 0,
+    workingData: [],
+    
+    abort: () => {
+        if (TMDB.controller) TMDB.controller.abort();
+        UI.elements.progressContainer.style.display = 'none';
+        Pipeline.runId++; // Invalidates current run
+    },
+
+    execute: async (rawFiles) => {
+        const apiKey = UI.elements.apiKey.value.trim();
+        if (!apiKey) return UI.showError("TMDB API Key is required.");
+        localStorage.setItem('pmf_apikey', apiKey);
+
+        Pipeline.runId++;
+        const currentRun = Pipeline.runId;
+        Pipeline.workingData = [];
+        
+        UI.elements.errorDiv.style.display = 'none';
+        UI.elements.inputArea.classList.remove('error-state');
+        UI.elements.progressContainer.style.display = 'flex';
+        UI.elements.tableBody.innerHTML = '';
+        UI.elements.tableContainer.style.display = 'block';
+        UI.elements.step3.classList.add('disabled');
+        TMDB.controller = new AbortController();
+
+        // 1. Parse & Filter locally
+        const validFiles = rawFiles.filter(f => f.Name && f.FullName)
+            .map(f => ({ originalName: f.Name, fullName: f.FullName, parsed: Parser.analyze(f.Name) }))
+            .filter(f => f.parsed !== null);
+
+        if (validFiles.length === 0) {
+            UI.showError("No valid media files found in payload.");
+            Pipeline.abort();
+            return;
+        }
+
+        // 2. Batch Processing against TMDB (Concurrent groups of 5)
+        const batchSize = 5;
+        let completed = 0;
+        
+        for (let i = 0; i < validFiles.length; i += batchSize) {
+            if (currentRun !== Pipeline.runId) return; // Aborted or superceded
+            
+            const batch = validFiles.slice(i, i + batchSize);
+            const promises = batch.map(async file => {
+                const meta = await TMDB.fetchMetadata(file.parsed, apiKey);
+                return { ...file, meta };
+            });
+
+            const results = await Promise.allSettled(promises);
+            
+            results.forEach((res, idx) => {
+                if (currentRun !== Pipeline.runId) return;
+                if (res.status === 'fulfilled') {
+                    const data = res.value;
+                    Pipeline.workingData.push(data);
+                    UI.appendRow(data.originalName, data.meta, data.parsed);
+                }
+            });
+
+            completed += batch.length;
+            UI.elements.progressText.innerText = `Resolving Metadata: ${Math.min(completed, validFiles.length)} / ${validFiles.length}`;
+            await Utils.sleep(200); // Rate limit buffer
+        }
+
+        if (currentRun === Pipeline.runId) {
+            UI.elements.progressContainer.style.display = 'none';
+            UI.elements.step3.classList.remove('disabled');
+            Pipeline.refreshScript();
+        }
+    },
+
+    refreshScript: () => {
+        if (Pipeline.workingData.length === 0) return;
+        const root = UI.elements.destPath.value;
+        const safe = UI.elements.whatifToggle.checked;
+        UI.elements.outputArea.value = ScriptBuilder.generate(Pipeline.workingData, root, safe);
+    },
+
+    manualOverride: async (originalName, newTitle) => {
+        const fileObj = Pipeline.workingData.find(f => f.originalName === originalName);
+        if (!fileObj || !newTitle.trim()) return;
+        
+        // Mutate parsed data for new search
+        fileObj.parsed.title = newTitle;
+        fileObj.parsed.type = 'movie'; // Defaulting manual overrides to movie for broader search
+        fileObj.parsed.year = null;
+        
+        const apiKey = UI.elements.apiKey.value;
+        const newMeta = await TMDB.fetchMetadata(fileObj.parsed, apiKey);
+        fileObj.meta = newMeta;
+        
+        // Re-render
+        UI.elements.tableBody.innerHTML = '';
+        Pipeline.workingData.forEach(data => UI.appendRow(data.originalName, data.meta, data.parsed));
+        Pipeline.refreshScript();
+    }
+};
+
+const UI = {
+    elements: {
+        sourcePath: document.getElementById('sourcePath'),
+        gatherCmd: document.getElementById('gatherCmd'),
+        apiKey: document.getElementById('apiKey'),
+        inputArea: document.getElementById('inputArea'),
+        errorDiv: document.getElementById('jsonError'),
+        progressContainer: document.getElementById('progressContainer'),
+        progressText: document.getElementById('progressText'),
+        tableContainer: document.getElementById('tableContainer'),
+        tableBody: document.getElementById('tableBody'),
+        step3: document.getElementById('step3'),
+        destPath: document.getElementById('destPath'),
+        whatifToggle: document.getElementById('whatifToggle'),
+        safeModeLabel: document.getElementById('safeModeLabel'),
+        outputArea: document.getElementById('outputArea')
+    },
+
+    init: () => {
+        const savedKey = localStorage.getItem('pmf_apikey');
+        if (savedKey) UI.elements.apiKey.value = savedKey;
+        UI.updateSourceCmd();
+        
+        UI.elements.sourcePath.addEventListener('input', UI.updateSourceCmd);
+        UI.elements.destPath.addEventListener('input', Pipeline.refreshScript);
+        
+        UI.elements.whatifToggle.addEventListener('change', (e) => {
+            const isSafe = e.target.checked;
+            UI.elements.safeModeLabel.classList.toggle('warning', !isSafe);
+            UI.elements.safeModeLabel.querySelector('span').innerText = isSafe 
+                ? "Safe Mode ENABLED (Appends -WhatIf to preview actions without moving files)" 
+                : "WARNING: Safe Mode DISABLED. Running script will immediately execute file moves.";
+            Pipeline.refreshScript();
+        });
+
+        // Listen for PASTE, not input, to prevent mid-stream parsing errors
+        UI.elements.inputArea.addEventListener('paste', () => {
+            setTimeout(() => {
+                const val = UI.elements.inputArea.value.trim();
+                if (!val) return;
+                try {
+                    let files = JSON.parse(val);
+                    if (!Array.isArray(files)) files = [files];
+                    Pipeline.execute(files);
+                } catch (e) {
+                    UI.showError("Invalid JSON structure. Ensure you copied the full PowerShell output.");
+                }
+            }, 100); // Small delay to let paste finish rendering in DOM
+        });
+    },
+
+    updateSourceCmd: () => {
+        const path = Utils.sanitizePSPath(UI.elements.sourcePath.value || "C:\\");
+        const exts = EXT_WHITELIST.map(e => `'.${e}'`).join(',');
+        const cmd = `Get-ChildItem -Path "${path}" -File -Recurse | Where-Object { $_.Extension -in @(${exts}) } | Select-Object FullName, Name, Length | ConvertTo-Json | Set-Clipboard`;
+        
+        UI.elements.gatherCmd.innerText = cmd;
+        UI.elements.gatherCmd.dataset.cmd = cmd; // Store raw command for safe copying
+    },
+
+    showError: (msg) => {
+        UI.elements.errorDiv.innerText = msg;
+        UI.elements.errorDiv.style.display = 'block';
+        UI.elements.inputArea.classList.add('error-state');
+    },
+
+    copyCmd: (elementId, btn) => {
+        const el = document.getElementById(elementId);
+        const text = el.dataset.cmd || el.value; // Read from dataset if span, value if textarea
+        if (!text) return;
+
+        navigator.clipboard.writeText(text).then(() => {
+            const orig = btn.innerText;
+            btn.innerText = 'Copied!';
+            setTimeout(() => btn.innerText = orig, 2000);
+        });
+    },
+
+    appendRow: (originalName, meta, parsedInfo) => {
+        const row = UI.elements.tableBody.insertRow();
+        const targetStr = meta.success 
+            ? `${meta.officialTitle} ${parsedInfo.type === 'tv' ? `(S${parsedInfo.season}E${parsedInfo.episode})` : `(${meta.year})`}`
+            : "Unknown Entity";
+
+        row.innerHTML = `
+            <td title="${originalName}">${originalName}</td>
+            <td title="${targetStr}">${targetStr}</td>
+            <td>
+                <span class="status ${meta.success ? 'match' : 'fail'}">${meta.success ? 'RESOLVED' : 'FAILED'}</span>
+                ${!meta.success ? `<button class="btn-action" onclick="const t = prompt('Enter override title:'); if(t) Pipeline.manualOverride('${originalName.replace(/'/g, "\\'")}', t)">Edit</button>` : ''}
+            </td>
+        `;
+    }
+};
+
+// Bootstrap
+document.addEventListener('DOMContentLoaded', UI.init);
+
+</script>
 </body>
 </html>
