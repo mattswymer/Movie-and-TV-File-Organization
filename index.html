@@ -57,7 +57,7 @@
     <div class="step-card" id="step1">
         <h2><span class="step-num">1</span> Source Extraction</h2>
         <p class="hint">Define the source directory. The generated command filters for known media extensions automatically.</p>
-        <input type="text" id="sourcePath" placeholder="e.g., C:\Downloads" value="C:\Downloads">
+        <input type="text" id="sourcePath" placeholder="e.g., C:\Downloads" value="D:\OneDrive\Movies">
         <div class="code-block">
             <button class="copy-btn" onclick="UI.copyCmd('gatherCmd', this)">Copy</button>
             <span id="gatherCmd" data-cmd=""></span>
@@ -109,14 +109,8 @@
 </div>
 
 <script>
-/**
- * PLEX MEDIA FIXER - CORE LOGIC
- * Refactored into logical namespaces to adhere to maintainability limits within a single file.
- */
-
 const EXT_WHITELIST = ['mkv', 'mp4', 'avi', 'mov', 'm4v', 'ts', 'wmv'];
 
-// --- 1. UTILITIES & SANITIZATION ---
 const Utils = {
     sanitizePSPath: (path) => path.replace(/[\"\`\$\;\&\(\)\{\}]/g, '').trim(),
     sanitizePSTitle: (title) => title.replace(/[\$\`\"\'\&]/g, '').replace(/[<>:\/\\|?*]+/g, '').trim(),
@@ -127,30 +121,24 @@ const Utils = {
     sleep: (ms) => new Promise(res => setTimeout(res, ms))
 };
 
-// --- 2. PARSING ENGINE ---
 const Parser = {
     analyze: (filename) => {
         const ext = Utils.getExt(filename);
         if (!EXT_WHITELIST.includes(ext)) return null;
 
-        // Strip extension and known quality flags
         let clean = filename.slice(0, filename.lastIndexOf('.')).replace(/\.(1080p|720p|2160p|4k|x264|x265|bluray|hdtv|web-dl|hevc|rerip).*/i, '');
         clean = clean.replace(/[\.\_\-]/g, ' ');
 
-        // Rule 1: TV Show (S01E01) - Non-greedy title capture
         const tvMatch = clean.match(/^(.+?)\s+[Ss](\d{1,2})[Ee](\d{1,2})/i);
         if (tvMatch) return { type: 'tv', title: tvMatch[1].trim(), season: parseInt(tvMatch[2]), episode: parseInt(tvMatch[3]), ext, original: filename };
 
-        // Rule 2: Movie (Year)
         const movieMatch = clean.match(/^(.+?)\s+(\d{4})/);
         if (movieMatch) return { type: 'movie', title: movieMatch[1].trim(), year: movieMatch[2], ext, original: filename };
 
-        // Fallback
         return { type: 'unknown', title: clean.trim(), ext, original: filename };
     }
 };
 
-// --- 3. TMDB API LAYER ---
 const TMDB = {
     cache: new Map(),
     controller: null,
@@ -160,17 +148,38 @@ const TMDB = {
         if (TMDB.cache.has(queryKey)) return TMDB.cache.get(queryKey);
 
         const baseUrl = "https://api.themoviedb.org/3/search";
-        const url = info.type === 'movie' 
-            ? `${baseUrl}/movie?api_key=${apiKey}&query=${encodeURIComponent(info.title)}&year=${info.year || ''}`
-            : `${baseUrl}/tv?api_key=${apiKey}&query=${encodeURIComponent(info.title)}`;
+        const headers = { accept: 'application/json' };
+        let queryParams = `query=${encodeURIComponent(info.title)}`;
+        
+        // Auto-detect auth method based on token length
+        if (apiKey.length > 50) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        } else {
+            queryParams += `&api_key=${apiKey}`;
+        }
+
+        // Route unknown files to the multi-search endpoint
+        let endpoint = '/multi';
+        if (info.type === 'movie') { 
+            endpoint = '/movie'; 
+            queryParams += `&year=${info.year || ''}`; 
+        } else if (info.type === 'tv') { 
+            endpoint = '/tv'; 
+        }
 
         try {
-            const response = await fetch(url, { signal: TMDB.controller.signal });
+            const response = await fetch(`${baseUrl}${endpoint}?${queryParams}`, { headers, signal: TMDB.controller.signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             
             if (data?.results?.length > 0) {
-                const res = data.results[0];
+                // Ignore person entities from multi-search
+                const res = data.results.find(r => r.media_type === 'movie' || r.media_type === 'tv') || data.results[0];
+                
+                if (info.type === 'unknown') {
+                    info.type = res.media_type === 'tv' ? 'tv' : 'movie';
+                }
+
                 const result = {
                     officialTitle: Utils.sanitizePSTitle(res.title || res.name),
                     year: (res.release_date || res.first_air_date || "0000").split('-')[0],
@@ -188,7 +197,6 @@ const TMDB = {
     }
 };
 
-// --- 4. SCRIPT BUILDER ---
 const ScriptBuilder = {
     generate: (processedFiles, destRoot, useWhatIf) => {
         const root = Utils.sanitizePSPath(destRoot) || "D:\\Media";
@@ -197,7 +205,7 @@ const ScriptBuilder = {
         
         let lines = [
             "# --- PLEX MEDIA FIXER: EXECUTION SCRIPT ---",
-            "$ErrorActionPreference = 'Continue' # Prevents single failures from aborting the entire run",
+            "$ErrorActionPreference = 'Continue'",
             "$FailedMoves = @()",
             `$TargetLibrary = '${root}'\n`
         ];
@@ -216,7 +224,6 @@ const ScriptBuilder = {
                 targetRelPath = `Movies\\${meta.officialTitle} (${meta.year})\\${meta.officialTitle} (${meta.year}).${parsed.ext}`;
             }
 
-            // Duplicate Detection
             let finalRelPath = targetRelPath;
             let counter = 2;
             while (seenPaths.has(finalRelPath)) {
@@ -244,7 +251,6 @@ const ScriptBuilder = {
     }
 };
 
-// --- 5. PIPELINE & UI CONTROLLER ---
 const Pipeline = {
     runId: 0,
     workingData: [],
@@ -252,7 +258,7 @@ const Pipeline = {
     abort: () => {
         if (TMDB.controller) TMDB.controller.abort();
         UI.elements.progressContainer.style.display = 'none';
-        Pipeline.runId++; // Invalidates current run
+        Pipeline.runId++; 
     },
 
     execute: async (rawFiles) => {
@@ -272,7 +278,6 @@ const Pipeline = {
         UI.elements.step3.classList.add('disabled');
         TMDB.controller = new AbortController();
 
-        // 1. Parse & Filter locally
         const validFiles = rawFiles.filter(f => f.Name && f.FullName)
             .map(f => ({ originalName: f.Name, fullName: f.FullName, parsed: Parser.analyze(f.Name) }))
             .filter(f => f.parsed !== null);
@@ -283,12 +288,11 @@ const Pipeline = {
             return;
         }
 
-        // 2. Batch Processing against TMDB (Concurrent groups of 5)
         const batchSize = 5;
         let completed = 0;
         
         for (let i = 0; i < validFiles.length; i += batchSize) {
-            if (currentRun !== Pipeline.runId) return; // Aborted or superceded
+            if (currentRun !== Pipeline.runId) return; 
             
             const batch = validFiles.slice(i, i + batchSize);
             const promises = batch.map(async file => {
@@ -309,7 +313,7 @@ const Pipeline = {
 
             completed += batch.length;
             UI.elements.progressText.innerText = `Resolving Metadata: ${Math.min(completed, validFiles.length)} / ${validFiles.length}`;
-            await Utils.sleep(200); // Rate limit buffer
+            await Utils.sleep(200); 
         }
 
         if (currentRun === Pipeline.runId) {
@@ -330,16 +334,14 @@ const Pipeline = {
         const fileObj = Pipeline.workingData.find(f => f.originalName === originalName);
         if (!fileObj || !newTitle.trim()) return;
         
-        // Mutate parsed data for new search
         fileObj.parsed.title = newTitle;
-        fileObj.parsed.type = 'movie'; // Defaulting manual overrides to movie for broader search
+        fileObj.parsed.type = 'movie'; 
         fileObj.parsed.year = null;
         
         const apiKey = UI.elements.apiKey.value;
         const newMeta = await TMDB.fetchMetadata(fileObj.parsed, apiKey);
         fileObj.meta = newMeta;
         
-        // Re-render
         UI.elements.tableBody.innerHTML = '';
         Pipeline.workingData.forEach(data => UI.appendRow(data.originalName, data.meta, data.parsed));
         Pipeline.refreshScript();
@@ -381,7 +383,6 @@ const UI = {
             Pipeline.refreshScript();
         });
 
-        // Listen for PASTE, not input, to prevent mid-stream parsing errors
         UI.elements.inputArea.addEventListener('paste', () => {
             setTimeout(() => {
                 const val = UI.elements.inputArea.value.trim();
@@ -393,7 +394,7 @@ const UI = {
                 } catch (e) {
                     UI.showError("Invalid JSON structure. Ensure you copied the full PowerShell output.");
                 }
-            }, 100); // Small delay to let paste finish rendering in DOM
+            }, 100);
         });
     },
 
@@ -403,7 +404,7 @@ const UI = {
         const cmd = `Get-ChildItem -Path "${path}" -File -Recurse | Where-Object { $_.Extension -in @(${exts}) } | Select-Object FullName, Name, Length | ConvertTo-Json | Set-Clipboard`;
         
         UI.elements.gatherCmd.innerText = cmd;
-        UI.elements.gatherCmd.dataset.cmd = cmd; // Store raw command for safe copying
+        UI.elements.gatherCmd.dataset.cmd = cmd;
     },
 
     showError: (msg) => {
@@ -414,7 +415,7 @@ const UI = {
 
     copyCmd: (elementId, btn) => {
         const el = document.getElementById(elementId);
-        const text = el.dataset.cmd || el.value; // Read from dataset if span, value if textarea
+        const text = el.dataset.cmd || el.value; 
         if (!text) return;
 
         navigator.clipboard.writeText(text).then(() => {
@@ -441,7 +442,6 @@ const UI = {
     }
 };
 
-// Bootstrap
 document.addEventListener('DOMContentLoaded', UI.init);
 
 </script>
