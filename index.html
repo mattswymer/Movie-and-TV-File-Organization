@@ -3,157 +3,176 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PlexMediaFixer - PS1 Generator</title>
+    <title>Media Array Processor</title>
     <style>
-        :root { --bg: #1a1a1a; --text: #e0e0e0; --accent: #e5a00d; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); padding: 20px; line-height: 1.6; }
-        .container { max-width: 1100px; margin: 0 auto; }
-        h1 { color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
-        textarea { width: 100%; height: 200px; background: #2a2a2a; color: #00ff41; border: 1px solid #444; border-radius: 5px; padding: 10px; font-family: monospace; }
-        .controls { margin: 20px 0; display: flex; gap: 10px; align-items: center; }
-        button { background: var(--accent); color: black; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; border-radius: 4px; }
-        button:hover { opacity: 0.9; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #252525; }
-        th, td { border: 1px solid #444; padding: 10px; text-align: left; font-size: 0.9rem; }
-        th { background: #333; }
-        .status-tag { padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; font-weight: bold; }
-        .match { background: #1b4d1b; }
-        .fail { background: #6b1b1b; }
-        input[type="text"] { background: #333; color: white; border: 1px solid #555; padding: 5px; width: 100%; }
-        .loading { display: none; color: var(--accent); font-weight: bold; }
+        :root { --bg: #121212; --panel: #1e1e1e; --text: #e0e0e0; --accent: #4da6ff; --border: #333; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); padding: 20px; line-height: 1.5; margin: 0; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+        h2 { margin: 0; font-size: 1.2rem; color: var(--accent); font-weight: 500; }
+        textarea { width: 100%; height: 180px; background: var(--panel); color: #a5d6a7; border: 1px solid var(--border); border-radius: 4px; padding: 12px; font-family: 'Consolas', monospace; resize: vertical; box-sizing: border-box; }
+        textarea:focus { outline: none; border-color: var(--accent); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); }
+        th, td { border-bottom: 1px solid var(--border); padding: 8px 12px; text-align: left; font-size: 0.85rem; }
+        th { background: #252525; font-weight: 600; color: #aaa; }
+        .status { padding: 3px 8px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; }
+        .status.match { background: #1b4d1b; color: #81c784; }
+        .status.fail { background: #4d1b1b; color: #e57373; }
+        input[type="text"] { background: transparent; color: var(--text); border: none; border-bottom: 1px solid #555; padding: 4px; width: 100%; font-family: monospace; font-size: 0.85rem; }
+        input[type="text"]:focus { outline: none; border-bottom-color: var(--accent); }
+        #statusMessage { font-size: 0.85rem; color: #888; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>PlexMediaFixer</h1>
-    <p>1. Paste the JSON output from PowerShell below. <br>
-       <small>Command: <code>Get-ChildItem -File -Recurse | Select-Object FullName, Name, Length | ConvertTo-Json | Set-Clipboard</code></small>
-    </p>
-
-    <textarea id="inputArea" placeholder='Paste JSON here...'></textarea>
-
-    <div class="controls">
-        <input type="password" id="apiKey" placeholder="TMDB API Read Access Token (Bearer)">
-        <button onclick="processFiles()">Process & Match</button>
-        <span id="loader" class="loading">Fetching metadata...</span>
+    <div>
+        <h2>1. Ingestion</h2>
+        <p style="font-size: 0.85rem; color: #aaa; margin-top: 4px;">Paste JSON output. Execution begins automatically on valid payload.</p>
+        <textarea id="inputArea" spellcheck="false" placeholder='[ {"FullName": "C:\\Downloads\\Show.S01E01.mkv", "Name": "Show.S01E01.mkv", "Length": 1024} ]'></textarea>
     </div>
 
-    <table id="previewTable">
-        <thead>
-            <tr>
-                <th>Original File</th>
-                <th>Identified As</th>
-                <th>Target Path</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody id="tableBody"></tbody>
-    </table>
+    <div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+            <h2>2. Evaluation Matrix</h2>
+            <span id="statusMessage">Awaiting input...</span>
+        </div>
+        <div style="max-height: 300px; overflow-y: auto; margin-top: 10px; border: 1px solid var(--border);">
+            <table id="previewTable">
+                <thead>
+                    <tr>
+                        <th>Source File</th>
+                        <th>Resolution</th>
+                        <th>Target Relative Path</th>
+                        <th>State</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+    </div>
 
-    <h3>Generated PowerShell Script</h3>
-    <textarea id="outputArea" readonly placeholder="Resulting script will appear here..."></textarea>
-    <p><small>Note: Script includes -WhatIf by default for safety.</small></p>
+    <div>
+        <h2>3. Output Script</h2>
+        <textarea id="outputArea" readonly spellcheck="false" placeholder="Compiled PS1 syntax will output here and copy to clipboard..."></textarea>
+    </div>
 </div>
 
 <script>
-    // --- PARSING LOGIC ---
+    const API_KEY = "8c1365e7271e2d6e613301939f928815";
+    let debounceTimer;
+
+    // Listen for paste/typing
+    document.getElementById('inputArea').addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        const val = this.value.trim();
+        if (!val) return;
+        
+        debounceTimer = setTimeout(() => {
+            try {
+                let files = JSON.parse(val);
+                if (!Array.isArray(files)) files = [files];
+                executePipeline(files);
+            } catch (e) {
+                document.getElementById('statusMessage').innerText = "Syntax error in JSON payload.";
+                document.getElementById('statusMessage').style.color = "#e57373";
+            }
+        }, 600);
+    });
+
     function parseFilename(filename) {
-        // Clean common noise
         let clean = filename.replace(/\.(1080p|720p|2160p|4k|x264|x265|bluray|hdtv|web-dl|hevc|rerip).*/i, '');
         clean = clean.replace(/[\.\_\-]/g, ' ');
 
-        // Check for TV Show pattern (S01E02)
         const tvMatch = clean.match(/(.+?)\s*S(\d{1,2})E(\d{1,2})/i);
-        if (tvMatch) {
-            return { type: 'tv', title: tvMatch[1].trim(), season: parseInt(tvMatch[2]), episode: parseInt(tvMatch[3]) };
-        }
+        if (tvMatch) return { type: 'tv', title: tvMatch[1].trim(), season: parseInt(tvMatch[2]), episode: parseInt(tvMatch[3]) };
 
-        // Check for Movie pattern (Title 2023)
         const movieMatch = clean.match(/(.+?)\s*(\d{4})/);
-        if (movieMatch) {
-            return { type: 'movie', title: movieMatch[1].trim(), year: movieMatch[2] };
-        }
+        if (movieMatch) return { type: 'movie', title: movieMatch[1].trim(), year: movieMatch[2] };
 
         return { type: 'unknown', title: clean.trim() };
     }
 
-    // --- API LOGIC ---
-    async function fetchMetadata(info, apiKey) {
+    async function fetchMetadata(info) {
         const baseUrl = "https://api.themoviedb.org/3/search";
-        const headers = { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json;charset=utf-8' };
-        
         try {
             let url = info.type === 'movie' 
-                ? `${baseUrl}/movie?query=${encodeURIComponent(info.title)}&year=${info.year || ''}`
-                : `${baseUrl}/tv?query=${encodeURIComponent(info.title)}`;
+                ? `${baseUrl}/movie?api_key=${API_KEY}&query=${encodeURIComponent(info.title)}&year=${info.year || ''}`
+                : `${baseUrl}/tv?api_key=${API_KEY}&query=${encodeURIComponent(info.title)}`;
             
-            const response = await fetch(url, { headers });
+            const response = await fetch(url);
             const data = await response.json();
             
             if (data.results && data.results.length > 0) {
                 const res = data.results[0];
                 return {
-                    officialTitle: res.title || res.name,
+                    officialTitle: (res.title || res.name).replace(/[<>:"/\\|?*]+/g, ''), // Sanitize for Windows FS
                     year: (res.release_date || res.first_air_date || "0000").split('-')[0],
                     success: true
                 };
             }
-        } catch (e) { console.error("API Error", e); }
+        } catch (e) {}
         return { officialTitle: info.title, success: false };
     }
 
-    // --- MAIN PROCESSOR ---
-    async function processFiles() {
-        const input = document.getElementById('inputArea').value;
-        const apiKey = document.getElementById('apiKey').value;
-        const loader = document.getElementById('loader');
+    async function executePipeline(files) {
         const tbody = document.getElementById('tableBody');
+        const statusMsg = document.getElementById('statusMessage');
+        const outputArea = document.getElementById('outputArea');
         
-        if(!apiKey) return alert("Please enter your TMDB API Token");
-        
-        let files;
-        try {
-            files = JSON.parse(input);
-            if (!Array.isArray(files)) files = [files]; // Handle single file JSON
-        } catch (e) { return alert("Invalid JSON input. Ensure you used the PowerShell command provided."); }
-
-        loader.style.display = "inline";
+        statusMsg.innerText = "Processing metadata via TMDB...";
+        statusMsg.style.color = "#4da6ff";
         tbody.innerHTML = "";
-        let scriptLines = ["# Media Reorganization Script", "$ErrorActionPreference = 'Stop'\n"];
+        
+        let scriptLines = [
+            "# Media Directory Synchronization",
+            "$ErrorActionPreference = 'Stop'",
+            "$TargetLibrary = 'D:\\Media' # UPDATE THIS TO YOUR DRIVE ROOT\n"
+        ];
 
         for (let file of files) {
+            if (!file.Name || !file.FullName) continue;
+            
             const parsed = parseFilename(file.Name);
-            const meta = await fetchMetadata(parsed, apiKey);
+            const meta = await fetchMetadata(parsed);
             const ext = file.Name.split('.').pop();
             
             let targetPath = "";
             if (parsed.type === 'tv') {
-                targetPath = `TV Shows\\${meta.officialTitle}\\Season ${parsed.season.toString().padStart(2, '0')}\\${meta.officialTitle} - S${parsed.season.toString().padStart(2, '0')}E${parsed.episode.toString().padStart(2, '0')}.${ext}`;
+                let s = parsed.season.toString().padStart(2, '0');
+                let e = parsed.episode.toString().padStart(2, '0');
+                targetPath = `TV Shows\\${meta.officialTitle}\\Season ${s}\\${meta.officialTitle} - S${s}E${e}.${ext}`;
             } else {
                 targetPath = `Movies\\${meta.officialTitle} (${meta.year})\\${meta.officialTitle} (${meta.year}).${ext}`;
             }
 
-            // Update UI
             const row = tbody.insertRow();
             row.innerHTML = `
                 <td>${file.Name}</td>
-                <td>${meta.officialTitle} (${parsed.type})</td>
+                <td>${meta.officialTitle}</td>
                 <td><input type="text" value="${targetPath}"></td>
-                <td><span class="status-tag ${meta.success ? 'match' : 'fail'}">${meta.success ? 'MATCHED' : 'GUESS'}</span></td>
+                <td><span class="status ${meta.success ? 'match' : 'fail'}">${meta.success ? 'OK' : 'ERR'}</span></td>
             `;
 
-            // Generate PowerShell line
             if (meta.success) {
-                scriptLines.push(`New-Item -ItemType Directory -Force -Path (Split-Path "C:\\PlexLibrary\\${targetPath}")`);
-                scriptLines.push(`Move-Item -Path "${file.FullName}" -Destination "C:\\PlexLibrary\\${targetPath}" -WhatIf`);
+                scriptLines.push(`$Dest = Join-Path -Path $TargetLibrary -ChildPath "${targetPath}"`);
+                scriptLines.push(`New-Item -ItemType Directory -Force -Path (Split-Path $Dest) | Out-Null`);
+                scriptLines.push(`Move-Item -Path "${file.FullName}" -Destination $Dest -WhatIf\n`);
             } else {
-                scriptLines.push(`# TODO: Could not find match for ${file.Name}`);
+                scriptLines.push(`# [UNRESOLVED] Move-Item -Path "${file.FullName}" -Destination "???"\n`);
             }
         }
 
-        document.getElementById('outputArea').value = scriptLines.join('\n');
-        loader.style.display = "none";
+        const finalScript = scriptLines.join('\n');
+        outputArea.value = finalScript;
+        
+        // Auto-copy to clipboard
+        navigator.clipboard.writeText(finalScript).then(() => {
+            statusMsg.innerText = "Complete. Script copied to clipboard.";
+            statusMsg.style.color = "#81c784";
+        }).catch(err => {
+            statusMsg.innerText = "Complete. (Manual copy required)";
+        });
     }
 </script>
 
