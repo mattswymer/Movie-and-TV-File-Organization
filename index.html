@@ -32,6 +32,9 @@
         
         .hint { font-size: 0.85rem; color: #94a3b8; margin-top: 0; }
         #loader { display: none; color: var(--accent); font-weight: bold; font-size: 0.9rem; margin-top: 10px; }
+        
+        .toggle-container { display: flex; align-items: center; gap: 8px; margin-bottom: 15px; font-size: 0.9rem; color: #ef4444; font-weight: bold; }
+        input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -74,18 +77,22 @@
         <p class="hint">Enter the root path of your final media library. The script will automatically create the required Plex-friendly subfolders here.</p>
         <input type="text" id="destPath" placeholder="e.g., E:\PlexMedia" value="D:\MediaLibrary">
         
-        <p class="hint" style="margin-top: 15px;">Review your final PowerShell script. Copy and run this to execute the moves.</p>
+        <label class="toggle-container">
+            <input type="checkbox" id="whatifToggle">
+            Enable Safe Mode (Appends -WhatIf to prevent actual file movement)
+        </label>
+        
         <div style="position: relative;">
             <button class="copy-btn" onclick="copyToClipboard('outputArea', this)" style="top: 10px; z-index: 10;">Copy Script</button>
             <textarea id="outputArea" readonly spellcheck="false" placeholder="Your final PowerShell script will appear here after Step 2..."></textarea>
         </div>
-        <p class="hint"><em>Note: The script includes -WhatIf by default. Run it once to see what happens, then remove -WhatIf to actually move the files.</em></p>
+        <p class="hint"><em>Note: If Safe Mode is unchecked, running this script will immediately move and rename your files.</em></p>
     </div>
 </div>
 
 <script>
     const API_KEY = "8c1365e7271e2d6e613301939f928815";
-    let parsedFilesCache = []; // Store files so changing destination instantly updates the script
+    let parsedFilesCache = [];
 
     // Update PS1 Command dynamically when Source Path changes
     document.getElementById('sourcePath').addEventListener('input', function() {
@@ -112,10 +119,13 @@
         }, 500);
     });
 
-    // Update Script dynamically when Destination Path changes
-    document.getElementById('destPath').addEventListener('input', function() {
+    // Update Script dynamically when Destination Path or Toggle changes
+    document.getElementById('destPath').addEventListener('input', updateScriptIfReady);
+    document.getElementById('whatifToggle').addEventListener('change', updateScriptIfReady);
+
+    function updateScriptIfReady() {
         if (parsedFilesCache.length > 0) buildFinalScript();
-    });
+    }
 
     // Copy to Clipboard Helper
     function copyToClipboard(elementId, btn) {
@@ -184,10 +194,8 @@
             const parsed = parseFilename(file.Name);
             const meta = await fetchMetadata(parsed);
             
-            // Store metadata back into the cache for script generation
             parsedFilesCache[i].meta = meta;
 
-            // Render Table Row
             const row = tbody.insertRow();
             row.innerHTML = `
                 <td>${file.Name}</td>
@@ -197,11 +205,14 @@
         }
 
         document.getElementById('loader').style.display = "none";
-        buildFinalScript(); // Build the script now that metadata is fetched
+        buildFinalScript(); 
     }
 
     function buildFinalScript() {
         const destRoot = document.getElementById('destPath').value.trim() || "D:\\Media";
+        const useWhatIf = document.getElementById('whatifToggle').checked;
+        const whatIfFlag = useWhatIf ? " -WhatIf" : "";
+        
         let scriptLines = [
             "# --- PLEX MEDIA FIXER: EXECUTION SCRIPT ---",
             "$ErrorActionPreference = 'Stop'",
@@ -225,7 +236,7 @@
             if (meta.success) {
                 scriptLines.push(`$Dest = Join-Path -Path $TargetLibrary -ChildPath "${targetRelPath}"`);
                 scriptLines.push(`New-Item -ItemType Directory -Force -Path (Split-Path $Dest) | Out-Null`);
-                scriptLines.push(`Move-Item -Path "${file.FullName}" -Destination $Dest -WhatIf\n`);
+                scriptLines.push(`Move-Item -Path "${file.FullName}" -Destination $Dest${whatIfFlag}\n`);
             } else {
                 scriptLines.push(`# [MANUAL INTERVENTION REQUIRED] Could not resolve: "${file.Name}"`);
                 scriptLines.push(`# Move-Item -Path "${file.FullName}" -Destination "???"\n`);
