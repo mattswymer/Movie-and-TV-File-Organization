@@ -26,7 +26,7 @@
         textarea.error-state { border-color: var(--error); }
         textarea[readonly] { background: #0a0f1c; color: #94a3b8; border-style: dashed; cursor: not-allowed; }
         
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; background: #0f172a; border-radius: 4px; overflow: hidden; table-layout: fixed; }
+        table { width: 100%; border-collapse: collapse; margin-top: 5px; background: #0f172a; border-radius: 4px; overflow: hidden; table-layout: fixed; }
         th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         th { background: #1e293b; color: #94a3b8; }
         td:nth-child(1) { width: 40%; } td:nth-child(2) { width: 40%; } td:nth-child(3) { width: 20%; }
@@ -78,7 +78,7 @@
         </div>
         
         <div style="max-height: 300px; overflow-y: auto; margin-top: 15px; display: none;" id="tableContainer">
-            <table id="previewTable">
+            <div id="rowCount" class="hint" style="margin-bottom: 5px; display: none;"></div> <table id="previewTable">
                 <thead>
                     <tr>
                         <th>Source File</th>
@@ -110,6 +110,7 @@
 
 <script>
 const EXT_WHITELIST = ['mkv', 'mp4', 'avi', 'mov', 'm4v', 'ts', 'wmv'];
+const EXT_PS_LIST = EXT_WHITELIST.map(e => `'.${e}'`).join(','); // O-6: Computed once
 
 const Utils = {
     sanitizePSPath: (path) => path.replace(/[\"\`\$\;\&\(\)\{\}]/g, '').trim(),
@@ -117,8 +118,7 @@ const Utils = {
     getExt: (filename) => {
         const idx = filename.lastIndexOf('.');
         return idx > 0 ? filename.slice(idx + 1).toLowerCase() : '';
-    },
-    sleep: (ms) => new Promise(res => setTimeout(res, ms))
+    }
 };
 
 const Parser = {
@@ -126,7 +126,8 @@ const Parser = {
         const ext = Utils.getExt(filename);
         if (!EXT_WHITELIST.includes(ext)) return null;
 
-        let clean = filename.slice(0, filename.lastIndexOf('.')).replace(/\.(1080p|720p|2160p|4k|x264|x265|bluray|hdtv|web-dl|hevc|rerip).*/i, '');
+        // O-3: Fix regex to match word boundary or space, not just dot
+        let clean = filename.slice(0, filename.lastIndexOf('.')).replace(/[\s\.](1080p|720p|2160p|4k|x264|x265|bluray|hdtv|web-dl|hevc|rerip).*/i, '');
         clean = clean.replace(/[\.\_\-]/g, ' ');
 
         const tvMatch = clean.match(/^(.+?)\s+[Ss](\d{1,2})[Ee](\d{1,2})/i);
@@ -143,22 +144,17 @@ const TMDB = {
     cache: new Map(),
     controller: null,
     
-    fetchMetadata: async (info, apiKey) => {
-        const queryKey = `${info.type}_${info.title}_${info.year||''}`;
-        if (TMDB.cache.has(queryKey)) return TMDB.cache.get(queryKey);
-
+    fetchMetadata: async (info, apiKey, signal) => {
         const baseUrl = "https://api.themoviedb.org/3/search";
         const headers = { accept: 'application/json' };
         let queryParams = `query=${encodeURIComponent(info.title)}`;
         
-        // Auto-detect auth method based on token length
         if (apiKey.length > 50) {
             headers['Authorization'] = `Bearer ${apiKey}`;
         } else {
             queryParams += `&api_key=${apiKey}`;
         }
 
-        // Route unknown files to the multi-search endpoint
         let endpoint = '/multi';
         if (info.type === 'movie') { 
             endpoint = '/movie'; 
@@ -167,13 +163,16 @@ const TMDB = {
             endpoint = '/tv'; 
         }
 
+        // O-1: Define key after endpoint resolution to prevent collision
+        const queryKey = `${endpoint}?${queryParams}`;
+        if (TMDB.cache.has(queryKey)) return TMDB.cache.get(queryKey);
+
         try {
-            const response = await fetch(`${baseUrl}${endpoint}?${queryParams}`, { headers, signal: TMDB.controller.signal });
+            const response = await fetch(`${baseUrl}${endpoint}?${queryParams}`, { headers, signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             
             if (data?.results?.length > 0) {
-                // Ignore person entities from multi-search
                 const res = data.results.find(r => r.media_type === 'movie' || r.media_type === 'tv') || data.results[0];
                 
                 if (info.type === 'unknown') {
@@ -203,8 +202,12 @@ const ScriptBuilder = {
         const flag = useWhatIf ? " -WhatIf" : "";
         const seenPaths = new Set();
         
+        // UX-3: Provide feedback when nothing resolved successfully
+        const successCount = processedFiles.filter(f => f.meta && f.meta.success).length;
+        
         let lines = [
             "# --- PLEX MEDIA FIXER: EXECUTION SCRIPT ---",
+            `# Resolved Matches: ${successCount} / ${processedFiles.length}`,
             "$ErrorActionPreference = 'Continue'",
             "$FailedMoves = @()",
             `$TargetLibrary = '${root}'\n`
@@ -259,12 +262,21 @@ const Pipeline = {
         if (TMDB.controller) TMDB.controller.abort();
         UI.elements.progressContainer.style.display = 'none';
         Pipeline.runId++; 
+        
+        // UX-2: Explicit visual state for aborted run
+        UI.elements.tableBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--warning); padding: 15px;">Run Cancelled</td></tr>';
+        UI.elements.outputArea.value = '# Execution Cancelled.';
+        UI.elements.step3.classList.add('disabled');
     },
 
     execute: async (rawFiles) => {
         const apiKey = UI.elements.apiKey.value.trim();
         if (!apiKey) return UI.showError("TMDB API Key is required.");
-        localStorage.setItem('pmf_apikey', apiKey);
+        sessionStorage.setItem('pmf_apikey', apiKey); // CF-1: Scoped to session
+
+        // CF-3: Capture controller per-run to avoid race condition on rapid paste
+        const controller = new AbortController();
+        TMDB.controller = controller;
 
         Pipeline.runId++;
         const currentRun = Pipeline.runId;
@@ -275,8 +287,8 @@ const Pipeline = {
         UI.elements.progressContainer.style.display = 'flex';
         UI.elements.tableBody.innerHTML = '';
         UI.elements.tableContainer.style.display = 'block';
+        UI.elements.rowCount.style.display = 'none';
         UI.elements.step3.classList.add('disabled');
-        TMDB.controller = new AbortController();
 
         const validFiles = rawFiles.filter(f => f.Name && f.FullName)
             .map(f => ({ originalName: f.Name, fullName: f.FullName, parsed: Parser.analyze(f.Name) }))
@@ -296,7 +308,7 @@ const Pipeline = {
             
             const batch = validFiles.slice(i, i + batchSize);
             const promises = batch.map(async file => {
-                const meta = await TMDB.fetchMetadata(file.parsed, apiKey);
+                const meta = await TMDB.fetchMetadata(file.parsed, apiKey, controller.signal); // CF-3 pass controller
                 return { ...file, meta };
             });
 
@@ -304,16 +316,27 @@ const Pipeline = {
             
             results.forEach((res, idx) => {
                 if (currentRun !== Pipeline.runId) return;
+                
+                let data;
                 if (res.status === 'fulfilled') {
-                    const data = res.value;
-                    Pipeline.workingData.push(data);
-                    UI.appendRow(data.originalName, data.meta, data.parsed);
+                    data = res.value;
+                } else {
+                    // O-4: Properly handle network rejection cases so files aren't dropped
+                    data = {
+                        ...batch[idx],
+                        meta: { success: false, officialTitle: batch[idx].parsed.title, info: batch[idx].parsed }
+                    };
                 }
+                Pipeline.workingData.push(data);
+                UI.appendRow(data.originalName, data.meta, data.parsed);
             });
 
             completed += batch.length;
             UI.elements.progressText.innerText = `Resolving Metadata: ${Math.min(completed, validFiles.length)} / ${validFiles.length}`;
-            await Utils.sleep(200); 
+            UI.elements.rowCount.innerText = `Showing ${Pipeline.workingData.length} files`;
+            UI.elements.rowCount.style.display = 'block';
+            
+            // O-5: Artificial sleep removed since TMDB free tier supports 50 req/s.
         }
 
         if (currentRun === Pipeline.runId) {
@@ -335,11 +358,12 @@ const Pipeline = {
         if (!fileObj || !newTitle.trim()) return;
         
         fileObj.parsed.title = newTitle;
-        fileObj.parsed.type = 'movie'; 
+        fileObj.parsed.type = 'unknown'; // O-2: Drop hardcoded 'movie' to let multi-search re-detect
         fileObj.parsed.year = null;
         
         const apiKey = UI.elements.apiKey.value;
-        const newMeta = await TMDB.fetchMetadata(fileObj.parsed, apiKey);
+        // Manual override doesn't need to be aborted via the main batch controller
+        const newMeta = await TMDB.fetchMetadata(fileObj.parsed, apiKey, new AbortController().signal);
         fileObj.meta = newMeta;
         
         UI.elements.tableBody.innerHTML = '';
@@ -358,6 +382,7 @@ const UI = {
         progressContainer: document.getElementById('progressContainer'),
         progressText: document.getElementById('progressText'),
         tableContainer: document.getElementById('tableContainer'),
+        rowCount: document.getElementById('rowCount'),
         tableBody: document.getElementById('tableBody'),
         step3: document.getElementById('step3'),
         destPath: document.getElementById('destPath'),
@@ -367,7 +392,7 @@ const UI = {
     },
 
     init: () => {
-        const savedKey = localStorage.getItem('pmf_apikey');
+        const savedKey = sessionStorage.getItem('pmf_apikey'); // CF-1: session storage retrieval
         if (savedKey) UI.elements.apiKey.value = savedKey;
         UI.updateSourceCmd();
         
@@ -383,8 +408,11 @@ const UI = {
             Pipeline.refreshScript();
         });
 
-        UI.elements.inputArea.addEventListener('paste', () => {
-            setTimeout(() => {
+        // UX-1: Use debounce on input to capture programmatic sets, paste, and drag-and-drop
+        let inputDebounce;
+        UI.elements.inputArea.addEventListener('input', () => {
+            clearTimeout(inputDebounce);
+            inputDebounce = setTimeout(() => {
                 const val = UI.elements.inputArea.value.trim();
                 if (!val) return;
                 try {
@@ -394,14 +422,13 @@ const UI = {
                 } catch (e) {
                     UI.showError("Invalid JSON structure. Ensure you copied the full PowerShell output.");
                 }
-            }, 100);
+            }, 150);
         });
     },
 
     updateSourceCmd: () => {
         const path = Utils.sanitizePSPath(UI.elements.sourcePath.value || "C:\\");
-        const exts = EXT_WHITELIST.map(e => `'.${e}'`).join(',');
-        const cmd = `Get-ChildItem -Path "${path}" -File -Recurse | Where-Object { $_.Extension -in @(${exts}) } | Select-Object FullName, Name, Length | ConvertTo-Json | Set-Clipboard`;
+        const cmd = `Get-ChildItem -Path "${path}" -File -Recurse | Where-Object { $_.Extension -in @(${EXT_PS_LIST}) } | Select-Object FullName, Name, Length | ConvertTo-Json | Set-Clipboard`;
         
         UI.elements.gatherCmd.innerText = cmd;
         UI.elements.gatherCmd.dataset.cmd = cmd;
@@ -431,14 +458,33 @@ const UI = {
             ? `${meta.officialTitle} ${parsedInfo.type === 'tv' ? `(S${parsedInfo.season}E${parsedInfo.episode})` : `(${meta.year})`}`
             : "Unknown Entity";
 
-        row.innerHTML = `
-            <td title="${originalName}">${originalName}</td>
-            <td title="${targetStr}">${targetStr}</td>
-            <td>
-                <span class="status ${meta.success ? 'match' : 'fail'}">${meta.success ? 'RESOLVED' : 'FAILED'}</span>
-                ${!meta.success ? `<button class="btn-action" onclick="const t = prompt('Enter override title:'); if(t) Pipeline.manualOverride('${originalName.replace(/'/g, "\\'")}', t)">Edit</button>` : ''}
-            </td>
-        `;
+        // CF-2: Create DOM nodes safely to prevent XSS via originalName
+        const cellOrig = row.insertCell();
+        cellOrig.title = originalName;
+        cellOrig.textContent = originalName;
+
+        const cellTarget = row.insertCell();
+        cellTarget.title = targetStr;
+        cellTarget.textContent = targetStr;
+
+        const cellStatus = row.insertCell();
+        
+        const statusSpan = document.createElement('span');
+        statusSpan.className = `status ${meta.success ? 'match' : 'fail'}`;
+        statusSpan.textContent = meta.success ? 'RESOLVED' : 'FAILED';
+        cellStatus.appendChild(statusSpan);
+
+        if (!meta.success) {
+            const btn = document.createElement('button');
+            btn.className = 'btn-action';
+            btn.dataset.file = originalName;
+            btn.textContent = 'Edit';
+            btn.addEventListener('click', async () => {
+                const t = prompt('Enter override title:');
+                if (t) Pipeline.manualOverride(originalName, t);
+            });
+            cellStatus.appendChild(btn);
+        }
     }
 };
 
